@@ -32,7 +32,8 @@ Mastodon.
 The bot does not run as a daemon - it's a oneshot process that syncs the
 last 5 tweets, then takes the last tweet in that list and stores its ID
 to a file. It then pulls up that file on the next run and tries to find at
-most 5 tweets starting from that saved point.
+most 5 tweets starting from that saved point. It's intended to be run as
+a cron/systemd.timer job every 5-30 minutes or so.
 
 As such, if the user you're trying to mirror posts a lot, this may not be 
 a feasible script to use. Theoretically Twitter's streaming API would work

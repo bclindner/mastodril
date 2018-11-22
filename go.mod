@@ -1,4 +1,4 @@
-module .
+module github.com/bclindner/mastodril
 
 require (
 	github.com/cenkalti/backoff v2.0.0+incompatible // indirect

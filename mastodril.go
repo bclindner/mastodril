@@ -86,12 +86,26 @@ func main () {
 	// post each tweet since the last checked tweet ID
 	// done in reverse order to keep chronological order
 	for i := len(tweets)-1; i >= 0; i-- {
-		tweet := tweets[i]
+		var tweet twitter.Tweet = tweets[i]
+		var fulltext string
+		var offset int
 		fmt.Println("found new tweet with id", tweet.IDStr)
-		fulltext := tweet.FullText
+		if tweet.Retweeted {
+			s := "RT @" + tweet.Entities.UserMentions[0].ScreenName + "@twitter.com: "
+			tweet = *tweet.RetweetedStatus
+			fulltext = s + tweet.FullText
+			offset += len(s)
+		} else {
+			fulltext = tweet.FullText
+		}
+		for _, e := range tweet.Entities.UserMentions {
+			fulltext = fulltext[:e.Indices[1]+offset] + "@twitter.com" + fulltext[e.Indices[1]+offset:]
+			offset += len("@twitter.com")
+		}
 		for _, e := range tweet.Entities.Urls {
-			expandedurl := strings.ReplaceAll(e.ExpandedURL, "http://", "")
-			fulltext = strings.ReplaceAll(fulltext, e.URL, expandedurl)
+			expandedurl := strings.ReplaceAll(e.ExpandedURL, "http://", "") // Fixes Twitter issue with dots
+			fulltext = fulltext[:e.Indices[0]+offset] + expandedurl + fulltext[e.Indices[1]+offset:]
+			offset += len(expandedurl) - (e.Indices[1] - e.Indices[0])
 		}
 		fulltext = strings.ReplaceAll(fulltext, "&amp;", "&")
 		fulltext = strings.ReplaceAll(fulltext, "&lt;", "<")

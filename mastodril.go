@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"encoding/binary"
 	"os"
+	"net/http"
 )
 
 type Config struct {
@@ -64,16 +65,20 @@ func main () {
 	if err == nil {
 		lastTweetID, _ = binary.Varint(lastTweetFile)
 	}
+
 	// get config file
 	configFile, err := ioutil.ReadFile("mastodril.json")
 	if err != nil { fmt.Println(err); os.Exit(1) }
+
 	// parse the config
 	var config Config
 	err = json.Unmarshal(configFile, &config)
 	if err != nil { fmt.Println(err); os.Exit(1) }
+
 	// get api clients
 	t := GetTwitterClient(config.Twitter)
 	m := GetMastodonClient(config.Mastodon)
+
 	// get twitter timeline starting at the user in question
 	tweets, _, err := t.Timelines.UserTimeline(&twitter.UserTimelineParams{
 		ScreenName: config.Username,
@@ -83,24 +88,70 @@ func main () {
 		TweetMode: "extended",
 	})
 	if err != nil { fmt.Println(err); os.Exit(1) }
+
 	// post each tweet since the last checked tweet ID
 	// done in reverse order to keep chronological order
 	for i := len(tweets)-1; i >= 0; i-- {
-		tweet := tweets[i]
+		var tweet twitter.Tweet = tweets[i]
+		var fulltext string
+		var offset int
+		var media_ids []mastodon.ID
+
 		fmt.Println("found new tweet with id", tweet.IDStr)
-		fulltext := tweet.FullText
-		for _, e := range tweet.Entities.Urls {
-			expandedurl := strings.ReplaceAll(e.ExpandedURL, "http://", "")
-			fulltext = strings.ReplaceAll(fulltext, e.URL, expandedurl)
+
+		// style retweet texts and reassign tweet variable
+		if tweet.Retweeted {
+			s := "RT @" + tweet.Entities.UserMentions[0].ScreenName + "@twitter.com: "
+			offset = len(s)
+			tweet = *tweet.RetweetedStatus
+			fulltext = s + tweet.FullText
+		} else {
+			fulltext = tweet.FullText
 		}
+
+		// prepend twitter url so we don't link to inexistent/wrong users from local instance
+		for _, e := range tweet.Entities.UserMentions {
+			fulltext = string([]rune(fulltext)[:e.Indices[1]+offset]) +
+			           "@twitter.com" +
+			           string([]rune(fulltext)[e.Indices[1]+offset:])
+			offset += len("@twitter.com")
+		}
+
+		// upload any media entity and save attachment ids
+		for _, e := range tweet.Entities.Media {
+			// XXX we should do a head req and check that content-length is less than 8mb
+			resp, err := http.Get(e.MediaURLHttps)
+			if err != nil {
+				fmt.Println("Error while downloading media:", e.MediaURLHttps)
+			} else {
+				writerAttachment, err := m.UploadMediaFromReader(context.Background(), resp.Body)
+				if err != nil {
+					fmt.Println("Error while uploading media:", e.MediaURLHttps)
+				} else {
+					media_ids = append(media_ids, writerAttachment.ID)
+					fulltext = strings.Replace(fulltext, e.URLEntity.URL, "", 1)
+				}
+			}
+		}
+
+		// transform t.co shortened tracking urls into their originals
+		for _, e := range tweet.Entities.Urls {
+			expandedurl := strings.ReplaceAll(e.ExpandedURL, "http://", "") // Fixes Twitter issue with dots
+			fulltext = strings.Replace(fulltext, e.URL, expandedurl, 1)
+		}
+
+		// decode html encoded symbols
 		fulltext = strings.ReplaceAll(fulltext, "&amp;", "&")
 		fulltext = strings.ReplaceAll(fulltext, "&lt;", "<")
 		fulltext = strings.ReplaceAll(fulltext, "&gt;", ">")
+
 		m.PostStatus(context.Background(), &mastodon.Toot{
 			Status: fulltext,
+			MediaIDs: media_ids,
 		})
 		lastTweetID = tweet.ID
 	}
+
 	// write the last tweet ID to the .last file
 	lastIDBinary := make([]byte, binary.MaxVarintLen64)
 	binary.PutVarint(lastIDBinary, lastTweetID)

@@ -6,6 +6,7 @@ import (
 	"github.com/dghubble/oauth1"
 	"github.com/dghubble/go-twitter/twitter"
 	"fmt"
+	"strings"
 	"encoding/json"
 	"io/ioutil"
 	"encoding/binary"
@@ -14,6 +15,7 @@ import (
 
 type Config struct {
 	Username string `json:"handle"`
+	ExcludeReplies *bool `json:"exclude_replies"`
 	Twitter TwitterConfig `json:"twitter"`
 	Mastodon MastodonConfig `json:"mastodon"`
 }
@@ -77,15 +79,25 @@ func main () {
 		ScreenName: config.Username,
 		SinceID: lastTweetID,
 		Count: 5,
+		ExcludeReplies: config.ExcludeReplies,
+		TweetMode: "extended",
 	})
 	if err != nil { fmt.Println(err); os.Exit(1) }
 	// post each tweet since the last checked tweet ID
 	// done in reverse order to keep chronological order
 	for i := len(tweets)-1; i >= 0; i-- {
 		tweet := tweets[i]
-		fmt.Println("found new tweet with id",tweet.IDStr)
+		fmt.Println("found new tweet with id", tweet.IDStr)
+		fulltext := tweet.FullText
+		for _, e := range tweet.Entities.Urls {
+			expandedurl := strings.ReplaceAll(e.ExpandedURL, "http://", "")
+			fulltext = strings.ReplaceAll(fulltext, e.URL, expandedurl)
+		}
+		fulltext = strings.ReplaceAll(fulltext, "&amp;", "&")
+		fulltext = strings.ReplaceAll(fulltext, "&lt;", "<")
+		fulltext = strings.ReplaceAll(fulltext, "&gt;", ">")
 		m.PostStatus(context.Background(), &mastodon.Toot{
-			Status: tweet.Text,
+			Status: fulltext,
 		})
 		lastTweetID = tweet.ID
 	}

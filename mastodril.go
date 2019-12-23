@@ -98,6 +98,7 @@ func main () {
 		var media_ids []mastodon.ID
 
 		fmt.Println("found new tweet with id", tweet.IDStr)
+		lastTweetID = tweet.ID
 
 		// style retweet texts and reassign tweet variable
 		if tweet.Retweeted {
@@ -149,7 +150,6 @@ func main () {
 			Status: fulltext,
 			MediaIDs: media_ids,
 		})
-		lastTweetID = tweet.ID
 	}
 
 	// write the last tweet ID to the .last file
